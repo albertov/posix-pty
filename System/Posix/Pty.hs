@@ -20,6 +20,7 @@
 module System.Posix.Pty (
     -- * Subprocess Creation
       spawnWithPty
+    , openPseudoTerminal
     -- * Data Structures
     , Pty
     , PtyControlCode (..)
@@ -248,6 +249,16 @@ spawnWithPty env' (fromBool -> search) path' argv' (x, y) = do
         mapM_ free argv
         mapM_ free env
 
+openPseudoTerminal
+  :: (Int, Int)   -- ^ Initial dimensions for the pseudo terminal.
+  -> IO (Pty, Fd)
+openPseudoTerminal (cols,rows) =
+  alloca $ \mPtr ->
+  alloca $ \sPtr -> do
+    throwErrnoIfMinus1Retry_ "hs_openpty" $
+      hs_openpty (fromIntegral cols) (fromIntegral rows) mPtr sPtr
+    (,) <$> (Pty <$> peek mPtr) <*> peek sPtr
+
 -- Module internal functions
 
 getFd :: Pty -> Fd
@@ -295,6 +306,13 @@ foreign import ccall "fork_exec_with_pty.h"
                        -> Ptr CString
                        -> Ptr Int
                        -> IO Fd
+
+foreign import ccall "open_pty.h"
+    hs_openpty :: Int
+               -> Int
+               -> Ptr Fd
+               -> Ptr Fd
+               -> IO CInt
 
 -- Pty specialised versions of GHC.Conc.IO
 -- | Equivalent to 'threadWaitRead'.

@@ -21,10 +21,7 @@
 
 #include <HsFFI.h>
 
-#include "fork_exec_with_pty.h"
-
-/* Should be exported by unistd.h, but isn't on OSX. */
-extern char **environ;
+#include "open_pty.h"
 
 #ifndef TTYDEFCHARS
 static cc_t  ttydefchars[NCCS] = {
@@ -34,19 +31,14 @@ static cc_t  ttydefchars[NCCS] = {
 };
 #endif
 
-/* Fork and exec with a pty, returning the fd of the master pty. */
 int
-fork_exec_with_pty
+hs_openpty
     ( HsInt sx
     , HsInt sy
-    , int search
-    , const char *file
-    , char *const argv[]
-    , char *const env[]
-    , HsInt *child_pid
+    , int *master_pty
+    , int *slave_pty
     )
 {
-    int pty;
     int packet_mode = 1;
     struct winsize ws;
     struct termios tio;
@@ -64,26 +56,13 @@ fork_exec_with_pty
     memcpy(&tio.c_cc, ttydefchars, sizeof tio.c_cc);
     cfsetspeed(&tio, TTYDEF_SPEED);
 
-    /* Fork and exec, returning the master pty. */
-    *child_pid = forkpty(&pty, NULL, &tio, &ws);
-    switch (*child_pid) {
-    case -1:
-        return -1;
-    case 0:
-        /* If an environment is specified, override the old one. */
-        if (env) environ = (char**) env;
-
-        /* Search user's path or not. */
-        if (search) execvp(file, argv);
-        else        execv(file, argv);
-
-        perror("exec failed");
-        exit(EXIT_FAILURE);
-    default:
+    int status = openpty(master_pty, slave_pty, NULL, &tio, &ws);
+    if (!status) {
         /* Switch the pty to packet mode, we'll deal with packeting on the
            haskell side of things. */
-        if (ioctl(pty, TIOCPKT, &packet_mode) == -1) return 1;
-
-        return pty;
+        if (ioctl(*master_pty, TIOCPKT, &packet_mode) == -1) return 1;
+        if (ioctl(*slave_pty, TIOCPKT, &packet_mode) == -1) return 1;
+        //FIXME Close ptys
     }
+    return status;
 }
